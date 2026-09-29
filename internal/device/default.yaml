@@ -33,6 +33,19 @@ devices:
       directories: ["PRIVATE/M4ROOT", "DCIM/100MSDCF"]
       file_patterns: ["C*.MP4", "DSC*.ARW", "DSC*.JPG"]
 
+
+  - id: canon-r7
+    name: "Canon EOS R7"
+    manufacturer: "Canon"
+    detect:
+      volume_labels: ["EOS_DIGITAL", "CANON"]
+      # R7 卡结构（实测）：
+      #   DCIM/100EOSR7/  图片：*.CR3（JPG 同名前缀）
+      #   MISC/           佳能通用目录，单独不能作指纹
+      # 以机型目录 DCIM/100EOSR7 作强指纹。
+      directories: ["DCIM/100EOSR7"]
+      file_patterns: ["*.CR3", "*.JPG"]
+
   - id: pocket3
     name: "DJI Pocket3"
     manufacturer: "DJI"
