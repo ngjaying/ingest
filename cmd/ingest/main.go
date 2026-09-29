@@ -394,13 +394,28 @@ func scannerToPeriod(files []scanner.File) []period.File {
 
 // planSegments 给每段补上事件名（来自 --name flag 或交互 prompt），并把
 // period.File 列表对回 scanner.File（拷贝阶段需要 RelPath）。
-func planSegments(io prompt.IO, segs []period.Segment, byPath map[string]scanner.File) ([]segmentPlan, error) {
-	if len(segs) > 1 && flagName != "" {
-		return nil, fmt.Errorf("自动检测到 %d 段，--name 无法分配给哪一段; "+
-			"去掉 --name 让程序逐段询问名字，或用 --from/--to 强制单段", len(segs))
+// autoSegmentName 给无头模式（--yes）自动命名：单段沿用 --name（没有则用日期）；
+// 多段一律日期命名，--name 有值时作前缀。
+func autoSegmentName(seg period.Segment, multi bool) string {
+	start := seg.Start.Format("20060102")
+	end := seg.End.Format("20060102")
+	datePart := start
+	if end != start {
+		datePart = start + "_" + end
 	}
-	if len(segs) > 1 && flagYes && flagName == "" {
-		return nil, fmt.Errorf("检测到多段同时又传了 --yes; --yes 与多段拷贝不兼容（每段都需要名字）")
+	if multi && flagName != "" {
+		return flagName + "-" + datePart
+	}
+	if !multi && flagName != "" {
+		return flagName
+	}
+	return datePart
+}
+
+func planSegments(io prompt.IO, segs []period.Segment, byPath map[string]scanner.File) ([]segmentPlan, error) {
+	if len(segs) > 1 && flagName != "" && !flagYes {
+		return nil, fmt.Errorf("自动检测到 %d 段，--name 无法分配给哪一段; "+
+			"去掉 --name 让程序逐段询问名字，或用 --from/--to 强制单段，或加 --yes 自动命名", len(segs))
 	}
 
 	plans := make([]segmentPlan, 0, len(segs))
@@ -409,6 +424,9 @@ func planSegments(io prompt.IO, segs []period.Segment, byPath map[string]scanner
 		start, end := seg.Start, seg.End
 
 		switch {
+		case flagYes:
+			// 无头模式：不 prompt，按规则自动命名。
+			name = autoSegmentName(seg, len(segs) > 1)
 		case len(segs) == 1 && flagName != "":
 			name = flagName
 		default:
