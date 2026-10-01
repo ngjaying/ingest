@@ -13,6 +13,9 @@ type Rule struct {
 	VolumeLabels []string
 	Directories  []string
 	FilePatterns []string
+	// Target 是该设备的专属目标根目录（watch 模式/无头用）。
+	// 为空时回退到全局 --target。
+	Target string
 }
 
 type Match struct {

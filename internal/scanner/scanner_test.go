@@ -130,3 +130,21 @@ func TestScan_PairingIsCaseInsensitive(t *testing.T) {
 		t.Fatalf("expected 2 files, got %d (%v)", len(files), relPaths(files))
 	}
 }
+
+func TestIsRawVideoExt(t *testing.T) {
+	for _, n := range []string{"a.CR3", "b.nef", "c.ARW", "d.DNG", "e.RAF", "f.RW2"} {
+		if !IsRawExt(n) {
+			t.Fatalf("%s should be raw", n)
+		}
+	}
+	for _, n := range []string{"a.MP4", "b.mov", "c.MTS", "d.avi"} {
+		if !IsVideoExt(n) {
+			t.Fatalf("%s should be video", n)
+		}
+	}
+	for _, n := range []string{"a.JPG", "b.HEIC", "c.XML"} {
+		if IsRawExt(n) || IsVideoExt(n) {
+			t.Fatalf("%s should be photo/other", n)
+		}
+	}
+}

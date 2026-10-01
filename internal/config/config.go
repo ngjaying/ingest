@@ -21,11 +21,22 @@ var defaultYAML []byte
 type Settings struct {
 	// GapDays：自动分段时允许的日期间隔阈值。详细见 default.yaml 的注释。
 	GapDays int `yaml:"gap_days"`
+	// StagingDir：两段式中转目录，为空表示单段直拷。
+	StagingDir string `yaml:"staging_dir"`
+	// CleanupStaging：转拷成功后是否删除 staging 批次目录。
+	CleanupStaging bool `yaml:"cleanup_staging"`
+	// Hooks：批后外部命令。
+	Hooks Hooks `yaml:"hooks"`
+}
+
+// Hooks 批后处理命令表。
+type Hooks struct {
+	AfterBatch []string `yaml:"after_batch"`
 }
 
 // Defaults 返回内置默认值。即便配置文件读不到，调用方也总能拿到可用 Settings。
 func Defaults() Settings {
-	return Settings{GapDays: 1}
+	return Settings{GapDays: 1, CleanupStaging: true}
 }
 
 // DefaultConfigPath 返回 XDG 规范下的配置文件位置。

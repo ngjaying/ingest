@@ -13,6 +13,7 @@ import (
 	"github.com/hktkzyx/ingest/internal/copier"
 	"github.com/hktkzyx/ingest/internal/db"
 	"github.com/hktkzyx/ingest/internal/device"
+	"github.com/hktkzyx/ingest/internal/hook"
 	"github.com/hktkzyx/ingest/internal/mount"
 	"github.com/hktkzyx/ingest/internal/period"
 	"github.com/hktkzyx/ingest/internal/prompt"
@@ -37,6 +38,8 @@ var (
 	flagConfigPath  string
 	flagGapDays     int
 	flagDryRun      bool
+	flagRawDir      string
+	flagVideoDir    string
 	flagYes         bool
 	flagVerbose     bool
 	flagOverwrite   bool
@@ -70,11 +73,13 @@ func rootCmd() *cobra.Command {
 	cmd.Flags().StringVar(&flagDBPath, "db", defaultDB(), "history database path")
 	cmd.Flags().IntVar(&flagGapDays, "gap-days", -1, "consecutive day gap to merge into one segment (overrides config.yaml)")
 	cmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "preview only, do not copy")
+	cmd.Flags().StringVar(&flagRawDir, "raw-dir", "", "RAW 文件进段目录下的子目录（例 --raw-dir raw），为空则不分离")
+	cmd.Flags().StringVar(&flagVideoDir, "video-dir", "", "视频文件进段目录下的子目录（例 --video-dir video），为空则不分离")
 	cmd.Flags().BoolVarP(&flagYes, "yes", "y", false, "accept all prompts (auto-pick highest, accept detected device)")
 	cmd.Flags().BoolVar(&flagOverwrite, "overwrite", false, "auto-overwrite when target file exists with different content (default: prompt; with --yes: skip)")
 	cmd.Flags().BoolVarP(&flagVerbose, "verbose", "v", false, "verbose output")
 
-	cmd.AddCommand(versionCmd(), devicesCmd())
+	cmd.AddCommand(versionCmd(), devicesCmd(), watchCmd())
 	return cmd
 }
 
@@ -197,7 +202,7 @@ func runIngest(cmd *cobra.Command, _ []string) error {
 
 	// [4/4] 目标 + 总览确认 + 拷贝
 	fmt.Fprintln(io.Out, "\n[4/4] 确认目标并开始拷贝")
-	target, err := resolveTarget(io, cmd)
+	target, err := resolveTarget(io, cmd, ruleTargetByID(rules, deviceID))
 	if err != nil {
 		return err
 	}
@@ -286,11 +291,27 @@ func runIngest(cmd *cobra.Command, _ []string) error {
 			continue
 		}
 
-		copied, skipped, failed, bytes := copyFiles(io, plan.Files, targetDir, deviceID, runTrashDir, policy, store)
+		copied, skipped, failed, bytes, records := copyFiles(io, plan.Files, targetDir, deviceID, runTrashDir, policy, store)
 		totalCopied += copied
 		totalSkipped += skipped
 		totalFailed += failed
 		totalBytes += bytes
+
+		// manifest + after_batch hooks（只在真跑时；hook 失败只记录）。
+		var hookRes []hook.HookResult
+		if len(settings.Hooks.AfterBatch) > 0 {
+			vars := map[string]string{
+				"target":      targetDir,
+				"device":      deviceID,
+				"device_name": deviceName,
+			}
+			hookRes = hook.RunAll(settings.Hooks.AfterBatch, vars)
+		}
+		if err := hook.WriteManifest(targetDir, hook.Manifest{
+			Device: deviceName, DeviceID: deviceID, Target: targetDir, Files: records, Hooks: hookRes,
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "  manifest 写入失败 %s: %v（不影响导入结果）\n", targetDir, err)
+		}
 	}
 
 	if flagDryRun {
@@ -311,10 +332,17 @@ func runIngest(cmd *cobra.Command, _ []string) error {
 
 // resolveTarget 决定本次的目标根目录。优先级：
 //   - --target 显式给出 → 直接展开使用
+//   - 设备规则自带 target → 用设备的（无头/watch 场景按源设备分流）
 //   - --yes 时 → 静默用默认值（不 prompt）
 //   - 其它情况（默认零参数交互）→ 弹 AskTarget，回车接受默认
-func resolveTarget(io prompt.IO, cmd *cobra.Command) (string, error) {
-	if cmd.Flags().Changed("target") || flagYes {
+func resolveTarget(io prompt.IO, cmd *cobra.Command, deviceTarget string) (string, error) {
+	if cmd.Flags().Changed("target") {
+		return expandPath(flagTarget)
+	}
+	if deviceTarget != "" {
+		return expandPath(deviceTarget)
+	}
+	if flagYes {
 		return expandPath(flagTarget)
 	}
 	defaultDir, err := expandPath(flagTarget)
@@ -326,6 +354,16 @@ func resolveTarget(io prompt.IO, cmd *cobra.Command) (string, error) {
 		return "", err
 	}
 	return expandPath(picked)
+}
+
+// ruleTargetByID 返回设备规则里的专属目标目录，没有则 ""。
+func ruleTargetByID(rules []device.Rule, id string) string {
+	for _, r := range rules {
+		if r.ID == id {
+			return r.Target
+		}
+	}
+	return ""
 }
 
 // segmentPlan 是一个段经过用户确认后的最终拷贝计划。
@@ -605,15 +643,22 @@ func overwritePolicy() conflictPolicy {
 	return policyAsk
 }
 
-func copyFiles(io prompt.IO, files []scanner.File, targetDir, deviceID, trashDir string, policy conflictPolicy, store *db.DB) (copied, skipped, failed int, totalBytes int64) {
+func copyFiles(io prompt.IO, files []scanner.File, targetDir, deviceID, trashDir string, policy conflictPolicy, store *db.DB) (copied, skipped, failed int, totalBytes int64, records []hook.FileRecord) {
 	for _, f := range files {
-		dst := filepath.Join(targetDir, filepath.Base(f.Path))
+		dir := targetDir
+		if flagRawDir != "" && scanner.IsRawExt(f.Path) {
+			dir = filepath.Join(targetDir, flagRawDir)
+		} else if flagVideoDir != "" && scanner.IsVideoExt(f.Path) {
+			dir = filepath.Join(targetDir, flagVideoDir)
+		}
+		dst := filepath.Join(dir, filepath.Base(f.Path))
 		out := copier.SafeCopy(f.Path, dst, deviceID, "", store)
 
 		if out.Result == copier.ResultConflict {
 			out = handleConflict(io, f, dst, deviceID, trashDir, policy, store, out)
 		}
 
+		rec := hook.FileRecord{Rel: f.RelPath, Dst: dst, Size: out.Bytes, Hash: out.Hash}
 		switch out.Result {
 		case copier.ResultCopied:
 			copied++
@@ -623,6 +668,7 @@ func copyFiles(io prompt.IO, files []scanner.File, targetDir, deviceID, trashDir
 			}
 		case copier.ResultSkipped:
 			skipped++
+			rec.Skip = true
 			if flagVerbose {
 				fmt.Fprintf(io.Out, "  跳过    %s\n", f.RelPath)
 			}
@@ -630,6 +676,7 @@ func copyFiles(io prompt.IO, files []scanner.File, targetDir, deviceID, trashDir
 			failed++
 			fmt.Fprintf(os.Stderr, "  失败    %s: %v\n", f.RelPath, out.Err)
 		}
+		records = append(records, rec)
 	}
 	return
 }
