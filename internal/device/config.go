@@ -22,6 +22,7 @@ type deviceEntry struct {
 	Name         string        `yaml:"name"`
 	Manufacturer string        `yaml:"manufacturer"`
 	Detect       detectSection `yaml:"detect"`
+	Target       string        `yaml:"target,omitempty"`
 }
 
 type detectSection struct {
@@ -79,6 +80,7 @@ func LoadFromFile(path string) ([]Rule, error) {
 			VolumeLabels: d.Detect.VolumeLabels,
 			Directories:  d.Detect.Directories,
 			FilePatterns: d.Detect.FilePatterns,
+			Target:       d.Target,
 		})
 	}
 	return rules, nil

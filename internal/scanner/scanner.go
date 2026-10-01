@@ -31,6 +31,29 @@ func IsMedia(name string) bool {
 	return MediaExtensions[strings.ToLower(filepath.Ext(name))]
 }
 
+// RawExtensions 是需要进 raw/ 子目录的格式。
+var RawExtensions = map[string]bool{
+	".arw": true, ".raw": true, ".cr2": true, ".cr3": true,
+	".nef": true, ".dng": true, ".raf": true, ".rw2": true,
+	".orf": true, ".pef": true, ".x3f": true, ".srw": true,
+}
+
+// IsRawExt 判断是否为 RAW 格式（进 raw/ 子目录）。
+func IsRawExt(name string) bool {
+	return RawExtensions[strings.ToLower(filepath.Ext(name))]
+}
+
+// VideoExtensions 是进 video/ 子目录的视频格式。
+var VideoExtensions = map[string]bool{
+	".mp4": true, ".mov": true, ".m4v": true,
+	".avi": true, ".mkv": true, ".mts": true, ".m2ts": true,
+}
+
+// IsVideoExt 判断是否为视频格式（进 video/ 子目录）。
+func IsVideoExt(name string) bool {
+	return VideoExtensions[strings.ToLower(filepath.Ext(name))]
+}
+
 func IsSidecar(name string) bool {
 	return SidecarExtensions[strings.ToLower(filepath.Ext(name))]
 }

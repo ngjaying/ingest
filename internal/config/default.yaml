@@ -10,3 +10,17 @@
 
 version: "1"
 gap_days: 1
+
+#   staging_dir  两段式拷卡的中转目录（给 Hook 做 rate 用）。
+#                为空 = 单段直拷到目标；有值 = watch 先落这里，Hook 后再转拷。
+#                例 Windows: "D:\\ingest-staging"
+#   cleanup_staging  转拷成功后是否删除 staging 里的批次目录。默认 true。
+#   hooks.after_batch  每段拷贝成功后跑的命令（按顺序），支持变量：
+#                {target} 本段目标目录，{device} 设备 id，{device_name} 设备名。
+#                命令失败只记录进 manifest，不推翻导入结果。
+#                例: - "hilight rate --root \"{target}\" --no-dry-run"
+
+staging_dir: ""
+cleanup_staging: true
+hooks:
+  after_batch: []
