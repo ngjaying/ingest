@@ -215,11 +215,13 @@ func runIngest(cmd *cobra.Command, _ []string) error {
 	totalPlanFiles := 0
 	for i, plan := range plans {
 		rendered, err := template.Render(flagTemplate, template.Context{
-			DateStart:  plan.Start.Format("20060102"),
-			DateEnd:    optionalEnd(plan.Period()),
-			EventName:  plan.Name,
-			DeviceID:   deviceID,
-			DeviceName: strings.ReplaceAll(deviceName, " ", "_"),
+			DateStart:   plan.Start.Format("20060102"),
+			DateEnd:     optionalEnd(plan.Period()),
+			EventName:   plan.Name,
+			DeviceID:    deviceID,
+			DeviceName:  strings.ReplaceAll(deviceName, " ", "_"),
+			DatePath:    datePath(plan.Start),
+			DatePathEnd: datePathEnd(plan.Period()),
 		})
 		if err != nil {
 			return fmt.Errorf("template (segment %d): %w", i+1, err)
@@ -354,6 +356,19 @@ func resolveTarget(io prompt.IO, cmd *cobra.Command, deviceTarget string) (strin
 		return "", err
 	}
 	return expandPath(picked)
+}
+
+// datePath 生成 年/年月/年月日 三级路径（与 hilight reorg 结构一致）。
+func datePath(t time.Time) string {
+	return t.Format("2006") + "/" + t.Format("200601") + "/" + t.Format("20060102")
+}
+
+// datePathEnd 跨天才返回结束日路径，单天为空（配合可选段 [_...]）。
+func datePathEnd(p period.Period) string {
+	if p.End.IsZero() || p.Start.Equal(p.End) {
+		return ""
+	}
+	return datePath(p.End)
 }
 
 // ruleTargetByID 返回设备规则里的专属目标目录，没有则 ""。
